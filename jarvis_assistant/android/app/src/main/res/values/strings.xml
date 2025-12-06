@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">JARVIS</string>
+    <string name="accessibility_service_description">JARVIS enables automation, smart notifications, and hands-free control.</string>
+    <string name="service_name">JARVIS AI Assistant</string>
+    <string name="notification_title">JARVIS Online</string>
+    <string name="notification_text">AI Assistant running 24/7</string>
+</resources>
