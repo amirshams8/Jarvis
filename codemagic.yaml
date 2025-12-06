@@ -1,0 +1,32 @@
+workflows:
+  android-jarvis-build:
+    name: JARVIS Android Build
+    max_build_duration: 60
+    environment:
+      java: 17
+      groups:
+        - android_credentials
+      vars:
+        PACKAGE_NAME: "com.jarvis.assistant"
+    scripts:
+      - name: Set up local.properties
+        script: |
+          echo "sdk.dir=$ANDROID_SDK_ROOT" > android/local.properties
+      
+      - name: Build Android APK
+        script: |
+          cd android
+          chmod +x gradlew
+          ./gradlew assembleDebug --stacktrace
+    
+    artifacts:
+      - android/app/build/outputs/**/*.apk
+      - android/app/build/outputs/**/mapping.txt
+    
+    publishing:
+      email:
+        recipients:
+          - amirshams8@example.com
+        notify:
+          success: true
+          failure: true
