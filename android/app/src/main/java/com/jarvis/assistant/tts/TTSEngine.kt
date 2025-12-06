@@ -1,30 +1,28 @@
 package com.jarvis.assistant.tts
 
 import android.content.Context
-import android.media.AudioAttributes
 import android.media.MediaPlayer
+import android.os.Bundle
 import android.speech.tts.TextToSpeech
-import com.jarvis.assistant.modes.PersonalityManager
-import com.jarvis.assistant.utils.Constants
+import com.jarvis.assistant.core.Constants
 import com.jarvis.assistant.utils.Logger
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
+import com.jarvis.assistant.utils.NetworkUtils
+import kotlinx.coroutines.*
 import okhttp3.*
-import okhttp3.MediaType.Companion.toMediaTypeOrNull
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONObject
 import java.io.File
 import java.util.*
 
 class TTSEngine(private val context: Context) : TextToSpeech.OnInitListener {
-
+    
     private var androidTTS: TextToSpeech? = null
+    private var useOnlineTTS = true
+    private var isWhisperMode = false
+    private val client = OkHttpClient()
+    private val scope = CoroutineScope(Dispatchers.IO)
     private var mediaPlayer: MediaPlayer? = null
-    private val client = OkHttpClient.Builder()
-        .connectTimeout(10, java.util.concurrent.TimeUnit.SECONDS)
-        .readTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
-        .build()
-
-    private var isAndroidTTSReady = false
 
     init {
         androidTTS = TextToSpeech(context, this)
@@ -33,104 +31,109 @@ class TTSEngine(private val context: Context) : TextToSpeech.OnInitListener {
     override fun onInit(status: Int) {
         if (status == TextToSpeech.SUCCESS) {
             androidTTS?.language = Locale.US
-            androidTTS?.setSpeechRate(Constants.TTS_SPEAKING_RATE)
-            androidTTS?.setPitch(Constants.TTS_PITCH)
-            isAndroidTTSReady = true
-            Logger.log("✅ Android TTS initialized (backup)", Logger.Level.INFO)
+            Logger.log("TTS Engine initialized successfully", Logger.Level.INFO)
+        } else {
+            Logger.log("TTS initialization failed with status: $status", Logger.Level.ERROR)
         }
     }
 
-    suspend fun speak(text: String, style: PersonalityManager.ResponseStyle) {
-        val finalText = style.prefix + text
-        Logger.log("🎙️ JARVIS: $finalText", Logger.Level.INFO)
-
-        if (Constants.USE_ELEVENLABS && Constants.ELEVENLABS_API_KEY.startsWith("xi-")) {
-            if (speakElevenLabs(finalText, style)) return
+    fun speak(text: String, whisper: Boolean = false) {
+        isWhisperMode = whisper
+        if (useOnlineTTS && NetworkUtils.isConnected(context)) {
+            speakWithElevenLabs(text)
+        } else {
+            speakWithAndroidTTS(text)
         }
-
-        speakAndroidTTS(finalText, style)
     }
 
-    private suspend fun speakElevenLabs(text: String, style: PersonalityManager.ResponseStyle): Boolean {
-        return withContext(Dispatchers.IO) {
+    private fun speakWithElevenLabs(text: String) {
+        scope.launch {
             try {
-                val json = JSONObject().apply {
-                    put("text", text.take(4900))
-                    put("model_id", Constants.ELEVENLABS_MODEL_ID)
-                    put("voice_settings", JSONObject().apply {
-                        put("stability", if (style.urgent) 0.3f else Constants.VOICE_STABILITY)
-                        put("similarity_boost", Constants.VOICE_SIMILARITY)
-                        put("style", if (style.whisper) 0.3f else Constants.VOICE_STYLE)
-                    })
-                }
-
-                val request = Request.Builder()
-                    .url("https://api.elevenlabs.io/v1/text-to-speech/${Constants.ELEVENLABS_VOICE_ID}")
-                    .post(json.toString().toRequestBody("application/json".toMediaTypeOrNull()))
-                    .addHeader("xi-api-key", Constants.ELEVENLABS_API_KEY)
-                    .build()
-
-                val response = client.newCall(request).execute()
-
-                if (response.isSuccessful) {
-                    val audioBytes = response.body?.bytes()
-                    if (audioBytes != null && audioBytes.isNotEmpty()) {
-                        playAudio(audioBytes)
-                        Logger.log("⭐ ELEVENLABS SUCCESS", Logger.Level.INFO)
-                        true
-                    } else false
-                } else {
-                    Logger.log("❌ ElevenLabs ${response.code}", Logger.Level.WARNING)
-                    false
-                }
+                val audioFile = generateSpeechElevenLabs(text)
+                playAudioFile(audioFile)
+                Logger.log("ElevenLabs TTS completed", Logger.Level.INFO)
             } catch (e: Exception) {
-                Logger.log("❌ ElevenLabs: ${e.message}", Logger.Level.ERROR)
-                false
+                Logger.log("ElevenLabs TTS failed: ${e.message}", Logger.Level.ERROR)
+                withContext(Dispatchers.Main) {
+                    speakWithAndroidTTS(text)
+                }
             }
         }
     }
 
-    private suspend fun playAudio(audioBytes: ByteArray) {
-        withContext(Dispatchers.Main) {
-            try {
-                mediaPlayer?.release()
-                mediaPlayer = MediaPlayer().apply {
-                    setAudioAttributes(
-                        AudioAttributes.Builder()
-                            .setUsage(AudioAttributes.USAGE_MEDIA)
-                            .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
-                            .build()
-                    )
-                    val tempFile = File(context.cacheDir, "jarvis_voice.mp3")
-                    tempFile.writeBytes(audioBytes)
-                    setDataSource(tempFile.absolutePath)
-                    prepare()
-                    setOnCompletionListener { it.release() }
-                    start()
+    private suspend fun generateSpeechElevenLabs(text: String): File = withContext(Dispatchers.IO) {
+        val url = "${Constants.ELEVENLABS_ENDPOINT}/${Constants.ELEVENLABS_VOICE_ID}"
+        
+        val json = JSONObject().apply {
+            put("text", text)
+            put("model_id", "eleven_monolingual_v1")
+            put("voice_settings", JSONObject().apply {
+                put("stability", if (isWhisperMode) 0.3 else 0.5)
+                put("similarity_boost", if (isWhisperMode) 0.3 else 0.75)
+            })
+        }
+
+        val body = json.toString().toRequestBody("application/json".toMediaType())
+        val request = Request.Builder()
+            .url(url)
+            .addHeader("xi-api-key", Constants.ELEVENLABS_API_KEY)
+            .addHeader("Content-Type", "application/json")
+            .post(body)
+            .build()
+
+        val response = client.newCall(request).execute()
+        if (!response.isSuccessful) {
+            throw Exception("ElevenLabs API error: ${response.code} - ${response.message}")
+        }
+        
+        val audioData = response.body?.bytes() ?: throw Exception("Empty response from ElevenLabs")
+        val audioFile = File(context.cacheDir, "jarvis_speech_${System.currentTimeMillis()}.mp3")
+        audioFile.writeBytes(audioData)
+        
+        Logger.log("Audio file generated: ${audioFile.absolutePath}", Logger.Level.DEBUG)
+        audioFile
+    }
+
+    private fun playAudioFile(audioFile: File) {
+        try {
+            mediaPlayer?.release()
+            mediaPlayer = MediaPlayer().apply {
+                setDataSource(audioFile.absolutePath)
+                prepare()
+                start()
+                setOnCompletionListener {
+                    audioFile.delete()
+                    Logger.log("Audio playback completed", Logger.Level.DEBUG)
                 }
-            } catch (e: Exception) {
-                Logger.log("❌ Audio error: ${e.message}", Logger.Level.ERROR)
+                setOnErrorListener { _, what, extra ->
+                    Logger.log("MediaPlayer error: what=$what, extra=$extra", Logger.Level.ERROR)
+                    true
+                }
             }
+        } catch (e: Exception) {
+            Logger.log("Failed to play audio file: ${e.message}", Logger.Level.ERROR)
+            audioFile.delete()
         }
     }
 
-    private fun speakAndroidTTS(text: String, style: PersonalityManager.ResponseStyle) {
-        if (!isAndroidTTSReady) return
-        androidTTS?.let { tts ->
-            tts.setSpeechRate(if (style.whisper) 0.75f else 1.0f)
-            tts.setPitch(if (style.urgent) 1.2f else 1.0f)
-            tts.speak(text, TextToSpeech.QUEUE_FLUSH, null, "jarvis")
-            Logger.log("📱 Android TTS fallback", Logger.Level.INFO)
+    private fun speakWithAndroidTTS(text: String) {
+        val volume = if (isWhisperMode) 0.3f else 1.0f
+        val params = Bundle().apply {
+            putFloat(TextToSpeech.Engine.KEY_PARAM_VOLUME, volume)
         }
+        androidTTS?.speak(text, TextToSpeech.QUEUE_ADD, params, null)
+        Logger.log("Speaking with Android TTS: $text", Logger.Level.DEBUG)
     }
-
-    fun stop() {
-        androidTTS?.stop()
-        mediaPlayer?.stop()
+    
+    fun setOnlineMode(enabled: Boolean) {
+        useOnlineTTS = enabled
+        Logger.log("Online TTS mode: $enabled", Logger.Level.INFO)
     }
 
     fun shutdown() {
         androidTTS?.shutdown()
         mediaPlayer?.release()
+        scope.cancel()
+        Logger.log("TTS Engine shutdown", Logger.Level.INFO)
     }
 }

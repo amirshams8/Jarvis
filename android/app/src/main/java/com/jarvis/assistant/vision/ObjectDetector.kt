@@ -8,20 +8,21 @@ class ObjectDetector(private val context: Context) {
     
     data class Detection(
         val label: String,
-        val confidence: Float
+        val confidence: Float,
+        val boundingBox: List<Float> = emptyList()
     )
 
     fun detect(bitmap: Bitmap): List<Detection> {
         try {
-            Logger.log("Detecting objects")
+            Logger.log("Detecting objects in image", Logger.Level.INFO)
             return emptyList()
         } catch (e: Exception) {
-            Logger.log("Detection error: ${e.message}")
+            Logger.log("Object detection error: ${e.message}", Logger.Level.ERROR)
             return emptyList()
         }
     }
 
     fun close() {
-        // Cleanup
+        Logger.log("ObjectDetector closed", Logger.Level.INFO)
     }
 }

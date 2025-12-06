@@ -3,14 +3,13 @@ package com.jarvis.assistant.media
 import android.content.Context
 import android.content.Intent
 import android.media.AudioManager
-import android.media.session.MediaController
-import android.media.session.MediaSessionManager
 import android.view.KeyEvent
+import com.jarvis.assistant.core.Constants
+import com.jarvis.assistant.core.JarvisCore
 
 class MediaController(private val context: Context) {
     
     private val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
-    private val mediaSessionManager = context.getSystemService(Context.MEDIA_SESSION_SERVICE) as MediaSessionManager
     
     fun play() {
         sendMediaButton(KeyEvent.KEYCODE_MEDIA_PLAY)
@@ -32,72 +31,37 @@ class MediaController(private val context: Context) {
         JarvisCore.speak("Previous track")
     }
     
-    fun volumeUp() {
-        audioManager.adjustStreamVolume(
-            AudioManager.STREAM_MUSIC,
-            AudioManager.ADJUST_RAISE,
-            AudioManager.FLAG_SHOW_UI
-        )
-    }
-    
-    fun volumeDown() {
-        audioManager.adjustStreamVolume(
-            AudioManager.STREAM_MUSIC,
-            AudioManager.ADJUST_LOWER,
-            AudioManager.FLAG_SHOW_UI
-        )
-    }
-    
-    fun setVolume(percent: Int) {
-        val maxVolume = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
-        val targetVolume = (maxVolume * percent / 100).coerceIn(0, maxVolume)
-        
-        audioManager.setStreamVolume(
-            AudioManager.STREAM_MUSIC,
-            targetVolume,
-            AudioManager.FLAG_SHOW_UI
-        )
-        
-        JarvisCore.speak("Volume set to $percent percent")
-    }
-    
     private fun sendMediaButton(keyCode: Int) {
         val downEvent = KeyEvent(KeyEvent.ACTION_DOWN, keyCode)
         val upEvent = KeyEvent(KeyEvent.ACTION_UP, keyCode)
-        
         audioManager.dispatchMediaKeyEvent(downEvent)
         audioManager.dispatchMediaKeyEvent(upEvent)
     }
     
-    fun playSpotify(query: String) {
-        val intent = Intent(Intent.ACTION_VIEW).apply {
-            data = android.net.Uri.parse("spotify:search:$query")
-            setPackage(Constants.SPOTIFY_PKG)
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        }
-        context.startActivity(intent)
+    fun openSpotify() {
+        launchMusicApp(Constants.SPOTIFY_PKG, "Spotify")
     }
     
-    fun playYouTubeMusic(query: String) {
-        val intent = Intent(Intent.ACTION_VIEW).apply {
-            data = android.net.Uri.parse("https://music.youtube.com/search?q=$query")
-            setPackage(Constants.YT_MUSIC_PKG)
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        }
-        context.startActivity(intent)
+    fun openYouTubeMusic() {
+        launchMusicApp(Constants.YT_MUSIC_PKG, "YouTube Music")
     }
     
-    fun playJioSaavn(query: String) {
-        val intent = Intent(Intent.ACTION_VIEW).apply {
-            data = android.net.Uri.parse("jiosaavn://search?query=$query")
-            setPackage(Constants.JIOSAAVN_PKG)
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        }
-        context.startActivity(intent)
+    fun openJioSaavn() {
+        launchMusicApp(Constants.JIOSAAVN_PKG, "JioSaavn")
     }
     
-    fun getCurrentlyPlaying(): String? {
-        val controllers = mediaSessionManager.getActiveSessions(null)
-        return controllers.firstOrNull()?.metadata?.description?.title?.toString()
+    private fun launchMusicApp(packageName: String, appName: String) {
+        try {
+            val intent = context.packageManager.getLaunchIntentForPackage(packageName)
+            if (intent != null) {
+                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                context.startActivity(intent)
+                JarvisCore.speak("Opening $appName")
+            } else {
+                JarvisCore.speak("$appName not installed")
+            }
+        } catch (e: Exception) {
+            JarvisCore.speak("Failed to open $appName")
+        }
     }
 }

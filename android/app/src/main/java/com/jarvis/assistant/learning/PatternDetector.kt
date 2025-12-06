@@ -1,17 +1,23 @@
 package com.jarvis.assistant.learning
 
 import android.content.Context
-import com.jarvis.assistant.learning.LearningSystem.CommandEvent
 
 class PatternDetector(private val context: Context) {
+    
+    data class CommandEvent(
+        val command: String,
+        val timestamp: Long,
+        val hourOfDay: Int,
+        val dayOfWeek: Int
+    )
     
     fun detectSequentialPatterns(events: List<CommandEvent>): List<String> {
         val patterns = mutableListOf<String>()
         val hourlyGroups = events.groupBy { it.hourOfDay }
         
-        hourlyGroups.forEach { (hour, eventsInHour) ->
+        for ((hour, eventsInHour) in hourlyGroups) {
             if (eventsInHour.size >= 3) {
-                patterns.add("Pattern detected at hour $hour")
+                patterns.add("Frequent activity detected at hour $hour with ${eventsInHour.size} commands")
             }
         }
         

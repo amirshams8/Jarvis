@@ -6,44 +6,55 @@ import android.os.Bundle
 import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
+import com.jarvis.assistant.utils.Logger
 
-object SpeechRecognitionEngine {
+class SpeechRecognitionEngine(private val context: Context) : RecognitionListener {
     
-    private var recognizer: SpeechRecognizer? = null
-    private var callback: ((String) -> Unit)? = null
+    private var speechRecognizer: SpeechRecognizer? = null
+    private var onResultCallback: ((String) -> Unit)? = null
     
-    fun startListening(context: Context, onResult: (String) -> Unit) {
-        callback = onResult
-        
-        recognizer = SpeechRecognizer.createSpeechRecognizer(context)
-        recognizer?.setRecognitionListener(object : RecognitionListener {
-            override fun onResults(results: Bundle?) {
-                val matches = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
-                val command = matches?.firstOrNull() ?: ""
-                callback?.invoke(command)
-                recognizer?.destroy()
-            }
-            
-            override fun onError(error: Int) {
-                Logger.log("Speech recognition error: $error")
-                recognizer?.destroy()
-            }
-            
-            override fun onReadyForSpeech(params: Bundle?) {}
-            override fun onBeginningOfSpeech() {}
-            override fun onRmsChanged(rmsdB: Float) {}
-            override fun onBufferReceived(buffer: ByteArray?) {}
-            override fun onEndOfSpeech() {}
-            override fun onPartialResults(partialResults: Bundle?) {}
-            override fun onEvent(eventType: Int, params: Bundle?) {}
-        })
-        
+    init {
+        speechRecognizer = SpeechRecognizer.createSpeechRecognizer(context)
+        speechRecognizer?.setRecognitionListener(this)
+    }
+    
+    fun startListening(callback: (String) -> Unit) {
+        onResultCallback = callback
         val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
             putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
             putExtra(RecognizerIntent.EXTRA_LANGUAGE, "en-US")
             putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
         }
-        
-        recognizer?.startListening(intent)
+        speechRecognizer?.startListening(intent)
+        Logger.log("Speech recognition started", Logger.Level.INFO)
+    }
+    
+    fun stopListening() {
+        speechRecognizer?.stopListening()
+    }
+    
+    override fun onResults(results: Bundle?) {
+        val matches = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
+        if (matches != null && matches.isNotEmpty()) {
+            val recognizedText = matches[0]
+            Logger.log("Recognized: $recognizedText", Logger.Level.INFO)
+            onResultCallback?.invoke(recognizedText)
+        }
+    }
+    
+    override fun onError(error: Int) {
+        Logger.log("Speech recognition error: $error", Logger.Level.ERROR)
+    }
+    
+    override fun onReadyForSpeech(params: Bundle?) {}
+    override fun onBeginningOfSpeech() {}
+    override fun onRmsChanged(rmsdB: Float) {}
+    override fun onBufferReceived(buffer: ByteArray?) {}
+    override fun onEndOfSpeech() {}
+    override fun onPartialResults(partialResults: Bundle?) {}
+    override fun onEvent(eventType: Int, params: Bundle?) {}
+    
+    fun destroy() {
+        speechRecognizer?.destroy()
     }
 }

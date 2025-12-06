@@ -1,89 +1,120 @@
 package com.jarvis.assistant.core
 
 import android.content.Context
-import com.jarvis.assistant.utils.Constants
 import com.jarvis.assistant.utils.Logger
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
+import kotlinx.coroutines.*
 import okhttp3.*
-import okhttp3.MediaType.Companion.toMediaTypeOrNull
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONArray
 import org.json.JSONObject
-import java.util.concurrent.TimeUnit
 
 class LLMManager(private val context: Context) {
-    private var currentLLM = Constants.DEFAULT_LLM
+    
+    private var currentLLM = "gpt4-mini"
+    private val client = OkHttpClient()
 
-    suspend fun query(prompt: String, model: String? = null): String = 
-        withContext(Dispatchers.IO) {
-            val targetModel = model ?: currentLLM
+    fun switchLLM(llmName: String) {
+        currentLLM = llmName
+        JarvisCore.speak("Switched to $llmName")
+        Logger.log("LLM switched to: $llmName", Logger.Level.INFO)
+    }
 
-            if (!Constants.ALL_LLMS.contains(targetModel)) {
-                return@withContext "Model not available: $targetModel"
+    suspend fun query(prompt: String, systemPrompt: String = ""): String = withContext(Dispatchers.IO) {
+        try {
+            when (currentLLM) {
+                "gpt4-mini" -> queryOpenAI(prompt, "gpt-4-turbo", systemPrompt)
+                "deepseek" -> queryDeepSeek(prompt, systemPrompt)
+                "gemini" -> queryGemini(prompt, systemPrompt)
+                else -> "Unknown LLM: $currentLLM"
             }
-
-            val json = JSONObject().apply {
-                put("messages", JSONArray().apply {
-                    put(JSONObject().apply {
-                        put("role", "user")
-                        put("content", "You are JARVIS from Iron Man. Respond concisely: $prompt")
-                    })
-                })
-                put("model", targetModel)
-                put("stream", false)
-                put("temperature", 0.7)
-                put("max_tokens", 1500)
-            }
-
-            try {
-                val client = OkHttpClient.Builder()
-                    .connectTimeout(30, TimeUnit.SECONDS)
-                    .readTimeout(90, TimeUnit.SECONDS)
-                    .build()
-
-                val request = Request.Builder()
-                    .url(Constants.PUTER_AI_URL)
-                    .post(json.toString().toRequestBody("application/json".toMediaTypeOrNull()))
-                    .addHeader("User-Agent", "JARVIS-Android/3.1")
-                    .build()
-
-                val response = client.newCall(request).execute()
-                val content = parsePuterResponse(response.body?.string() ?: "")
-
-                Logger.log("[$targetModel] $content", Logger.Level.INFO)
-                content
-
-            } catch (e: Exception) {
-                Logger.log("AI error: ${e.message}", Logger.Level.ERROR)
-                "AI service error: ${e.message}"
-            }
-        }
-
-    fun switchLLM(modelName: String) {
-        if (Constants.ALL_LLMS.contains(modelName)) {
-            currentLLM = modelName
-            JarvisCore.speak("Switched to $modelName")
-            Logger.log("LLM → $modelName", Logger.Level.INFO)
+        } catch (e: Exception) {
+            Logger.log("LLM query failed: ${e.message}", Logger.Level.ERROR)
+            "Error processing request: ${e.message}"
         }
     }
 
-    fun getCurrentLLM(): String = currentLLM
-    fun getAvailableModels(): List<String> = Constants.ALL_LLMS
-
-    private fun parsePuterResponse(raw: String): String {
-        return try {
-            val json = JSONObject(raw)
-            when {
-                json.has("choices") -> {
-                    json.getJSONArray("choices").getJSONObject(0)
-                        .getJSONObject("message").getString("content")
-                }
-                json.has("message") -> json.getJSONObject("message").getString("content")
-                json.has("text") -> json.getString("text")
-                else -> raw.take(300)
+    private suspend fun queryOpenAI(prompt: String, model: String, systemPrompt: String): String {
+        val messages = JSONArray().apply {
+            if (systemPrompt.isNotEmpty()) {
+                put(JSONObject().put("role", "system").put("content", systemPrompt))
             }
+            put(JSONObject().put("role", "user").put("content", prompt))
+        }
+        
+        val json = JSONObject().apply {
+            put("model", model)
+            put("messages", messages)
+            put("temperature", 0.7)
+            put("max_tokens", 500)
+        }
+
+        val body = json.toString().toRequestBody("application/json".toMediaType())
+        val request = Request.Builder()
+            .url(Constants.OPENAI_ENDPOINT)
+            .addHeader("Authorization", "Bearer ${Constants.OPENAI_API_KEY}")
+            .addHeader("Content-Type", "application/json")
+            .post(body)
+            .build()
+
+        val response = client.newCall(request).execute()
+        val responseBody = response.body?.string() ?: return "Empty response from OpenAI"
+        
+        return try {
+            val jsonResponse = JSONObject(responseBody)
+            jsonResponse.getJSONArray("choices")
+                .getJSONObject(0)
+                .getJSONObject("message")
+                .getString("content")
         } catch (e: Exception) {
-            raw.take(200)
+            Logger.log("Failed to parse OpenAI response: ${e.message}", Logger.Level.ERROR)
+            "Failed to parse response"
+        }
+    }
+
+    private suspend fun queryDeepSeek(prompt: String, systemPrompt: String): String {
+        return queryOpenAI(prompt, "deepseek-chat", systemPrompt)
+    }
+    
+    private suspend fun queryGemini(prompt: String, systemPrompt: String): String {
+        val fullPrompt = if (systemPrompt.isNotEmpty()) {
+            "$systemPrompt\n\nUser: $prompt"
+        } else {
+            prompt
+        }
+        
+        val json = JSONObject().apply {
+            put("contents", JSONArray().apply {
+                put(JSONObject().apply {
+                    put("parts", JSONArray().apply {
+                        put(JSONObject().put("text", fullPrompt))
+                    })
+                })
+            })
+        }
+        
+        val body = json.toString().toRequestBody("application/json".toMediaType())
+        val url = "${Constants.GEMINI_ENDPOINT}?key=${Constants.GEMINI_API_KEY}"
+        val request = Request.Builder()
+            .url(url)
+            .addHeader("Content-Type", "application/json")
+            .post(body)
+            .build()
+        
+        val response = client.newCall(request).execute()
+        val responseBody = response.body?.string() ?: return "Empty response from Gemini"
+        
+        return try {
+            val jsonResponse = JSONObject(responseBody)
+            jsonResponse.getJSONArray("candidates")
+                .getJSONObject(0)
+                .getJSONObject("content")
+                .getJSONArray("parts")
+                .getJSONObject(0)
+                .getString("text")
+        } catch (e: Exception) {
+            Logger.log("Failed to parse Gemini response: ${e.message}", Logger.Level.ERROR)
+            "Failed to parse response"
         }
     }
 }

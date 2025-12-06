@@ -2,76 +2,72 @@ package com.jarvis.assistant.media
 
 import android.content.Context
 import android.content.Intent
-import android.media.session.MediaController
-import android.media.session.MediaSessionManager
-import android.media.session.PlaybackState
+import com.jarvis.assistant.core.Constants
+import com.jarvis.assistant.core.JarvisCore
+import com.jarvis.assistant.utils.Logger
 
 class MusicPlayerManager(private val context: Context) {
     
-    private val mediaSessionManager = context.getSystemService(Context.MEDIA_SESSION_SERVICE) as MediaSessionManager
+    private var currentPlayer: String = "spotify"
     
-    fun getCurrentPlayer(): String? {
-        val controllers = getActiveMediaControllers()
-        return controllers.firstOrNull()?.packageName
-    }
-    
-    fun getCurrentTrack(): TrackInfo? {
-        val controller = getActiveMediaControllers().firstOrNull() ?: return null
-        val metadata = controller.metadata ?: return null
-        
-        return TrackInfo(
-            title = metadata.description.title?.toString() ?: "Unknown",
-            artist = metadata.description.subtitle?.toString() ?: "Unknown",
-            album = metadata.description.description?.toString() ?: "",
-            duration = metadata.getLong("android.media.metadata.DURATION")
-        )
-    }
-    
-    fun getPlaybackState(): PlaybackState? {
-        return getActiveMediaControllers().firstOrNull()?.playbackState
-    }
-    
-    fun isPlaying(): Boolean {
-        val state = getPlaybackState()
-        return state?.state == PlaybackState.STATE_PLAYING
-    }
-    
-    fun playSpotifyPlaylist(playlistUri: String) {
-        val intent = Intent(Intent.ACTION_VIEW).apply {
-            data = android.net.Uri.parse(playlistUri)
-            setPackage(Constants.SPOTIFY_PKG)
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        }
-        context.startActivity(intent)
-    }
-    
-    fun searchAndPlay(query: String, app: String = "spotify") {
-        when (app.lowercase()) {
-            "spotify" -> {
-                JarvisCore.service.mediaController.playSpotify(query)
-            }
-            "youtube", "youtube music" -> {
-                JarvisCore.service.mediaController.playYouTubeMusic(query)
-            }
-            "jiosaavn" -> {
-                JarvisCore.service.mediaController.playJioSaavn(query)
+    fun playSong(query: String) {
+        when (currentPlayer) {
+            "spotify" -> playOnSpotify(query)
+            "youtube" -> playOnYouTube(query)
+            "jiosaavn" -> playOnJioSaavn(query)
+            else -> {
+                JarvisCore.speak("Unknown music player")
             }
         }
     }
     
-    private fun getActiveMediaControllers(): List<MediaController> {
-        return try {
-            mediaSessionManager.getActiveSessions(null)
+    private fun playOnSpotify(query: String) {
+        try {
+            val intent = Intent(Intent.ACTION_VIEW).apply {
+                setPackage(Constants.SPOTIFY_PKG)
+                data = android.net.Uri.parse("spotify:search:$query")
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            context.startActivity(intent)
+            JarvisCore.speak("Playing $query on Spotify")
         } catch (e: Exception) {
-            Logger.log("Failed to get media controllers: ${e.message}")
-            emptyList()
+            JarvisCore.speak("Failed to play on Spotify")
+            Logger.log("Spotify error: ${e.message}", Logger.Level.ERROR)
         }
     }
     
-    data class TrackInfo(
-        val title: String,
-        val artist: String,
-        val album: String,
-        val duration: Long
-    )
+    private fun playOnYouTube(query: String) {
+        try {
+            val intent = Intent(Intent.ACTION_SEARCH).apply {
+                setPackage(Constants.YT_MUSIC_PKG)
+                putExtra("query", query)
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            context.startActivity(intent)
+            JarvisCore.speak("Searching $query on YouTube Music")
+        } catch (e: Exception) {
+            JarvisCore.speak("Failed to play on YouTube Music")
+            Logger.log("YouTube Music error: ${e.message}", Logger.Level.ERROR)
+        }
+    }
+    
+    private fun playOnJioSaavn(query: String) {
+        try {
+            val intent = context.packageManager.getLaunchIntentForPackage(Constants.JIOSAAVN_PKG)
+            if (intent != null) {
+                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                context.startActivity(intent)
+                JarvisCore.speak("Opening JioSaavn")
+            } else {
+                JarvisCore.speak("JioSaavn not installed")
+            }
+        } catch (e: Exception) {
+            Logger.log("JioSaavn error: ${e.message}", Logger.Level.ERROR)
+        }
+    }
+    
+    fun switchPlayer(playerName: String) {
+        currentPlayer = playerName.lowercase()
+        JarvisCore.speak("Switched to $playerName")
+    }
 }

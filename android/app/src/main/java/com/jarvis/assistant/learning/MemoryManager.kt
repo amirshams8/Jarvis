@@ -8,7 +8,7 @@ class MemoryManager(private val context: Context) {
 
     fun storePreference(key: String, value: String) {
         prefs.edit().putString(key, value).apply()
-        Logger.log("Stored preference: $key")
+        Logger.log("Stored preference: $key", Logger.Level.INFO)
     }
 
     fun getPreference(key: String): String? {
@@ -17,6 +17,6 @@ class MemoryManager(private val context: Context) {
 
     fun clearMemory() {
         prefs.edit().clear().apply()
-        Logger.log("Memory cleared")
+        Logger.log("Memory cleared", Logger.Level.INFO)
     }
 }

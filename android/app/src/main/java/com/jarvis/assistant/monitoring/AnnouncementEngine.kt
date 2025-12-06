@@ -1,86 +1,45 @@
 package com.jarvis.assistant.monitoring
 
 import android.content.Context
+import com.jarvis.assistant.core.JarvisCore
 import kotlinx.coroutines.*
+import java.text.SimpleDateFormat
+import java.util.*
 
 class AnnouncementEngine(private val context: Context) {
     
-    private val scope = CoroutineScope(Dispatchers.Main)
-    private val alerts = mutableListOf<Alert>()
+    private val scope = CoroutineScope(Dispatchers.Default)
     
-    data class Alert(
-        val category: String,
-        val message: String,
-        val timestamp: Long,
-        val priority: Priority
-    )
-    
-    enum class Priority {
-        LOW, MEDIUM, HIGH, CRITICAL
-    }
-    
-    fun announce(message: String, priority: Priority = Priority.MEDIUM) {
+    fun scheduleAnnouncement(message: String, delayMillis: Long) {
         scope.launch {
-            when (priority) {
-                Priority.CRITICAL -> {
-                    JarvisCore.speak("Alert! $message")
-                }
-                Priority.HIGH -> {
-                    JarvisCore.speak("Important: $message")
-                }
-                Priority.MEDIUM -> {
-                    JarvisCore.speak(message)
-                }
-                Priority.LOW -> {
-                    // Queue for later
-                }
-            }
+            delay(delayMillis)
+            JarvisCore.announce(message)
         }
     }
     
-    fun logAlert(category: String, message: String, priority: Priority = Priority.MEDIUM) {
-        alerts.add(Alert(category, message, System.currentTimeMillis(), priority))
-        
-        // Auto-announce based on priority
-        if (priority >= Priority.HIGH) {
-            announce(message, priority)
-        }
+    fun announceTime() {
+        val time = SimpleDateFormat("h:mm a", Locale.getDefault()).format(Date())
+        JarvisCore.announce("The time is $time")
     }
     
-    fun announceNotification(app: String, title: String, text: String) {
-        // Intelligently announce important notifications
-        val important = isImportantNotification(app, title, text)
-        
-        if (important) {
-            JarvisCore.speak("Notification from $app: $title")
-        }
+    fun announceDate() {
+        val date = SimpleDateFormat("EEEE, MMMM d", Locale.getDefault()).format(Date())
+        JarvisCore.announce("Today is $date")
     }
     
-    private fun isImportantNotification(app: String, title: String, text: String): Boolean {
-        // Check if notification contains important keywords
-        val keywords = listOf("urgent", "important", "alert", "critical", "emergency")
-        return keywords.any { text.contains(it, ignoreCase = true) || title.contains(it, ignoreCase = true) }
+    fun announceWeather(temperature: Int, condition: String) {
+        JarvisCore.announce("Current temperature is $temperature degrees and $condition")
     }
     
-    fun announceBatteryEvent(level: Int, isCharging: Boolean) {
-        when {
-            level < 10 && !isCharging -> {
-                announce("Critical battery warning: $level percent remaining", Priority.CRITICAL)
-            }
-            level < 20 && !isCharging -> {
-                announce("Battery low: $level percent", Priority.HIGH)
-            }
-            level == 100 && isCharging -> {
-                announce("Battery fully charged", Priority.LOW)
-            }
-        }
+    fun announceReminder(reminderText: String) {
+        JarvisCore.announce("Reminder: $reminderText")
     }
     
-    fun announceNetworkChange(connected: Boolean) {
-        if (connected) {
-            announce("Internet connection restored", Priority.MEDIUM)
-        } else {
-            announce("Internet connection lost. Switching to offline mode.", Priority.HIGH)
-        }
+    fun announceNotification(appName: String, title: String) {
+        JarvisCore.announce("New notification from $appName: $title")
+    }
+    
+    fun shutdown() {
+        scope.cancel()
     }
 }

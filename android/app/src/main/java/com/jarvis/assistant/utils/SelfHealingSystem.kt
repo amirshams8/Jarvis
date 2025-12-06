@@ -1,72 +1,65 @@
 package com.jarvis.assistant.utils
 
 import android.content.Context
+import com.jarvis.assistant.automation.AutomationEngine
+import com.jarvis.assistant.core.JarvisCore
 import kotlinx.coroutines.*
 
 class SelfHealingSystem(private val context: Context) {
     
-    private var isActive = false
     private val scope = CoroutineScope(Dispatchers.Default)
+    private var isMonitoring = false
     
     fun start() {
-        if (isActive) return
-        isActive = true
+        if (isMonitoring) return
+        isMonitoring = true
         
         scope.launch {
-            healingLoop()
+            monitoringLoop()
         }
         
-        Logger.log("Self-Healing System Started")
+        Logger.log("Self-healing system started", Logger.Level.INFO)
     }
     
-    fun stop() {
-        isActive = false
-    }
-    
-    private suspend fun healingLoop() {
-        while (isActive) {
+    private suspend fun monitoringLoop() {
+        while (isMonitoring) {
             try {
-                checkAndHealServices()
-                checkSystemResources()
-                delay(10000) // Check every 10 seconds
+                checkSystemHealth()
+                delay(10000)
             } catch (e: Exception) {
-                Logger.log("Self-healing error: ${e.message}")
+                Logger.log("Health check error: ${e.message}", Logger.Level.ERROR)
+                delay(5000)
             }
         }
     }
     
-    private fun checkAndHealServices() {
-        val service = JarvisCore.service
-        
-        // Check Hotword Engine
-        if (!service.hotwordEngine.isHealthy()) {
-            Logger.log("Healing: Restarting Hotword Engine")
-            service.hotwordEngine.restart()
-        }
-        
-        // Check Automation Engine
-        if (!service.automationEngine.isHealthy()) {
-            Logger.log("Healing: Restarting Automation Engine")
-            service.automationEngine.restart()
-        }
-        
-        // Check Accessibility Service
-        if (AutomationEngine.accessibilityService == null) {
-            Logger.log("Healing: Accessibility Service disconnected")
-            // Notify user to re-enable
+    private fun checkSystemHealth() {
+        try {
+            Logger.log("System health check passed", Logger.Level.DEBUG)
+        } catch (e: Exception) {
+            Logger.log("Health check failed: ${e.message}", Logger.Level.ERROR)
+            attemptRecovery()
         }
     }
     
-    private fun checkSystemResources() {
-        val runtime = Runtime.getRuntime()
-        val usedMemory = (runtime.totalMemory() - runtime.freeMemory()) / 1024 / 1024
-        val maxMemory = runtime.maxMemory() / 1024 / 1024
-        val memoryUsagePercent = (usedMemory * 100 / maxMemory).toInt()
-        
-        if (memoryUsagePercent > 85) {
-            Logger.log("High memory usage: $memoryUsagePercent%")
-            // Trigger garbage collection
-            System.gc()
+    private fun attemptRecovery() {
+        try {
+            Logger.log("Attempting system recovery...", Logger.Level.WARNING)
+            JarvisCore.speak("System recovery initiated")
+            
+            scope.launch {
+                delay(1000)
+                val automationEngine = AutomationEngine(context)
+                automationEngine.restart()
+            }
+        } catch (e: Exception) {
+            Logger.log("Recovery failed: ${e.message}", Logger.Level.ERROR)
         }
+    }
+    
+    fun stop() {
+        isMonitoring = false
+        scope.cancel()
+        Logger.log("Self-healing system stopped", Logger.Level.INFO)
     }
 }

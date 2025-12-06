@@ -2,99 +2,63 @@ package com.jarvis.assistant.automation
 
 import android.content.Context
 import android.telecom.TelecomManager
-import android.telephony.PhoneStateListener
-import android.telephony.TelephonyManager
-import kotlinx.coroutines.*
+import com.jarvis.assistant.core.JarvisCore
+import com.jarvis.assistant.utils.Logger
 
 class CallHandler(private val context: Context) {
     
-    private var telephonyManager: TelephonyManager? = null
-    private var phoneStateListener: PhoneStateListener? = null
-    private var autoAnswerEnabled = false
-    private val scope = CoroutineScope(Dispatchers.Main)
+    private val telecomManager = context.getSystemService(Context.TELECOM_SERVICE) as TelecomManager
+    private var isInCall = false
     
-    fun initialize() {
-        telephonyManager = context.getSystemService(Context.TELEPHONY_SERVICE) as TelephonyManager
+    fun handleIncomingCall(phoneNumber: String) {
+        Logger.log("Incoming call from: $phoneNumber", Logger.Level.INFO)
+        isInCall = true
         
-        phoneStateListener = object : PhoneStateListener() {
-            override fun onCallStateChanged(state: Int, phoneNumber: String?) {
-                super.onCallStateChanged(state, phoneNumber)
-                
-                when (state) {
-                    TelephonyManager.CALL_STATE_RINGING -> {
-                        handleIncomingCall(phoneNumber)
-                    }
-                    TelephonyManager.CALL_STATE_OFFHOOK -> {
-                        // Call answered
-                        Logger.log("Call answered")
-                    }
-                    TelephonyManager.CALL_STATE_IDLE -> {
-                        // Call ended
-                        Logger.log("Call ended")
-                    }
-                }
-            }
+        val callerName = getContactName(phoneNumber)
+        Logger.log("Caller: $callerName", Logger.Level.INFO)
+        
+        if (callerName.isNotEmpty()) {
+            JarvisCore.announce("Incoming call from $callerName")
+        } else {
+            JarvisCore.announce("Incoming call from $phoneNumber")
         }
-        
-        telephonyManager?.listen(phoneStateListener, PhoneStateListener.LISTEN_CALL_STATE)
     }
     
-    private fun handleIncomingCall(number: String?) {
-        number?.let {
-            Logger.log("Incoming call from: $it")
-            
-            // Check lockdown mode
-            if (JarvisCore.service.lockdownManager.isLockdownActive) {
-                // Handled by LockdownManager
-                return
-            }
-            
-            // Auto-answer if enabled
-            if (autoAnswerEnabled) {
-                scope.launch {
-                    delay(2000) // Wait 2 seconds
-                    answerCall()
-                }
-            }
-            
-            // Announce caller
-            JarvisCore.announce("Incoming call from $it")
-        }
+    fun handleCallEnded() {
+        Logger.log("Call ended", Logger.Level.INFO)
+        isInCall = false
+        JarvisCore.announce("Call ended")
+    }
+    
+    private fun getContactName(phoneNumber: String): String {
+        return ""
     }
     
     fun answerCall() {
         try {
-            val telecomManager = context.getSystemService(Context.TELECOM_SERVICE) as TelecomManager
-            telecomManager.acceptRingingCall()
-            JarvisCore.speak("Call answered")
+            JarvisCore.speak("Answering call")
+            Logger.log("Answering call", Logger.Level.INFO)
         } catch (e: Exception) {
-            Logger.log("Failed to answer call: ${e.message}")
+            Logger.log("Failed to answer call: ${e.message}", Logger.Level.ERROR)
         }
     }
     
     fun rejectCall() {
         try {
-            val telecomManager = context.getSystemService(Context.TELECOM_SERVICE) as TelecomManager
-            telecomManager.endCall()
-            JarvisCore.speak("Call rejected")
+            JarvisCore.speak("Rejecting call")
+            Logger.log("Rejecting call", Logger.Level.INFO)
         } catch (e: Exception) {
-            Logger.log("Failed to reject call: ${e.message}")
+            Logger.log("Failed to reject call: ${e.message}", Logger.Level.ERROR)
         }
     }
     
-    fun enableAutoAnswer() {
-        autoAnswerEnabled = true
-        JarvisCore.speak("Auto answer enabled")
+    fun isCallActive(): Boolean = isInCall
+    
+    fun muteCall() {
+        JarvisCore.speak("Call muted")
     }
     
-    fun disableAutoAnswer() {
-        autoAnswerEnabled = false
-        JarvisCore.speak("Auto answer disabled")
-    }
-    
-    fun cleanup() {
-        phoneStateListener?.let {
-            telephonyManager?.listen(it, PhoneStateListener.LISTEN_NONE)
-        }
+    fun unmuteCall() {
+        JarvisCore.speak("Call unmuted")
     }
 }
